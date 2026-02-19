@@ -20,7 +20,7 @@ services:
       - DATABASE_PATH=calmanage.db
       
       # Calendar URLs - Google Calendar ICS feeds
-      - FAMILY_CALENDAR_ICS_URL
+      - FAMILY_CALENDAR_ICS_URL=
       - RONJA_CALENDAR_ICS_URL
       
       # Radicale Server - Approved events calendar
