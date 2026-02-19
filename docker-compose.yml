@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   webapp:
     # Pull from GHCR
-    image: ghcr.io/YOUR_USERNAME/calmanage:latest
+    image: ghcr.io/silasm01/calendar-manager:latest
     
     container_name: calmanage-webapp
     ports:
@@ -11,8 +9,7 @@ services:
     
     # Volume mounts for database persistence and live code reloading
     volumes:
-      - ./app:/app/app
-      - ./calmanage.db:/app/calmanage.db
+      - .:/app
     
     # Environment variables - Set these via .env file (development) or container runtime
     environment:
