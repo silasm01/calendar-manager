@@ -1,6 +1,7 @@
 caldav
 playwright
 icalendar
-pytzpython-dotenv
+pytz
+python-dotenv
 flask
 requests
