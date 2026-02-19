@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Approval</title>
+  <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Calendar Approval</h1>
+      <div class="header-buttons">
+        <a href="/rules" class="btn btn-secondary">Rules</a>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="calendar-container">
+        <div id="calendar" class="calendar-wrapper"></div>
+      </div>
+      <div class="event-detail" id="eventDetail">
+        <div class="event-detail-header">
+          <h2 class="event-detail-title" id="eventTitle">No event selected</h2>
+        </div>
+
+        <div class="event-detail-content">
+          <div style="margin-bottom: 20px;">
+            <span class="status-badge" id="eventStatus"></span>
+          </div>
+
+          <div id="eventConflicts" class="conflict-warning" style="display:none;">
+            <strong>Conflicts:</strong> <span id="conflictList"></span>
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">Source Calendar</label>
+            <div class="event-detail-value" id="eventSource"></div>
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">Date & Time</label>
+            <div class="event-detail-value" id="eventTime"></div>
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">Description</label>
+            <div class="event-detail-value" id="eventDescription"></div>
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">Buffer Before (minutes)</label>
+            <input type="number" id="bufferBefore" class="buffer-input" value="0" min="0" max="120" />
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">Buffer After (minutes)</label>
+            <input type="number" id="bufferAfter" class="buffer-input" value="0" min="0" max="120" />
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">
+              <input type="checkbox" id="useGenericTitle" class="privacy-checkbox" />
+              Use generic title ("Busy")
+            </label>
+          </div>
+
+          <div class="event-detail-field">
+            <label class="event-detail-label">
+              <input type="checkbox" id="useGenericDescription" class="privacy-checkbox" />
+              Use generic description
+            </label>
+          </div>
+
+          <div class="event-actions" id="eventActions">
+            <button class="btn btn-approve" id="approveBtn" onclick="approveEvent()">Approve</button>
+            <button class="btn btn-ignore" id="ignoreBtn" onclick="ignoreEvent()">Ignore</button>
+          </div>
+
+          <div class="event-uid" id="eventUid"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

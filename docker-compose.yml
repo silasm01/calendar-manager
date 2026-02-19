@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  webapp:
+    # Pull from GHCR
+    image: ghcr.io/YOUR_USERNAME/calmanage:latest
+    
+    container_name: calmanage-webapp
+    ports:
+      - "5000:5000"
+    
+    # Volume mounts for database persistence and live code reloading
+    volumes:
+      - ./app:/app/app
+      - ./calmanage.db:/app/calmanage.db
+    
+    # Environment variables - Set these via .env file (development) or container runtime
+    environment:
+      # Database
+      - DATABASE_PATH=calmanage.db
+      
+      # Calendar URLs - Google Calendar ICS feeds
+      - FAMILY_CALENDAR_ICS_URL
+      - RONJA_CALENDAR_ICS_URL
+      
+      # Radicale Server - Approved events calendar
+      - APPROVED_CALENDAR_URL
+      
+      # Radicale Server - Blocked events calendars
+      - FAMILY_BLOCKED_CALENDAR_URL
+      - RONJA_BLOCKED_CALENDAR_URL
+      
+      # Radicale Authentication
+      - RADICALE_USERNAME
+      - RADICALE_PASSWORD
+      
+      # WorkScrape Configuration
+      - SAMESYSTEM_EMAIL
+      - SAMESYSTEM_PASSWORD
+      - SAMESYSTEM_LOGIN_URL=https://in.samesystem.com/login
+      
+      # Sync Configuration
+      - SYNC_WINDOW_DAYS=90
+    
+    restart: unless-stopped
