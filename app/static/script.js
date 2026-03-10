@@ -3,6 +3,8 @@ let currentEvent = null;
 let events = [];
 let detailPanelOnLeft = false;
 let bufferEventIds = [];
+let workscrapePollTimer = null;
+let workscrapeLastLogCount = 0;
 
 // In-memory cache for database data
 let buffers = {};  // { uid: { before, after } }
@@ -11,15 +13,146 @@ let ignoredEvents = new Set();  // Set of UIDs
 
 document.addEventListener('DOMContentLoaded', function () {
     initCalendar();
+    setupWorkscrapeUi();
     loadInitialData();
 });
+
+function setupWorkscrapeUi() {
+    const runBtn = document.getElementById('runWorkscrapeBtn');
+    const closeBtn = document.getElementById('closeWorkscrapeModal');
+    const modal = document.getElementById('workscrapeModal');
+
+    if (!runBtn || !closeBtn || !modal) return;
+
+    runBtn.addEventListener('click', runWorkscrape);
+    closeBtn.addEventListener('click', closeWorkscrapeModal);
+    modal.addEventListener('click', function (event) {
+        if (event.target === modal) {
+            closeWorkscrapeModal();
+        }
+    });
+}
+
+function openWorkscrapeModal() {
+    const modal = document.getElementById('workscrapeModal');
+    if (modal) {
+        modal.classList.add('open');
+    }
+}
+
+function closeWorkscrapeModal() {
+    const modal = document.getElementById('workscrapeModal');
+    if (modal) {
+        modal.classList.remove('open');
+    }
+}
+
+async function runWorkscrape() {
+    const runBtn = document.getElementById('runWorkscrapeBtn');
+    const outputEl = document.getElementById('workscrapeOutput');
+
+    openWorkscrapeModal();
+
+    if (outputEl) {
+        outputEl.textContent = '';
+    }
+    workscrapeLastLogCount = 0;
+
+    if (runBtn) {
+        runBtn.disabled = true;
+    }
+
+    try {
+        const response = await fetch('/api/workscrape/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+
+        if (!response.ok && response.status !== 409) {
+            showNotification(result.message || 'Failed to start workscrape', 'error');
+            if (runBtn) {
+                runBtn.disabled = false;
+            }
+            return;
+        }
+
+        if (response.status === 409) {
+            showNotification('workscrape.py is already running', 'error');
+        }
+
+        startWorkscrapePolling();
+    } catch (error) {
+        console.error('Error starting workscrape:', error);
+        showNotification('Error starting workscrape', 'error');
+        if (runBtn) {
+            runBtn.disabled = false;
+        }
+    }
+}
+
+function startWorkscrapePolling() {
+    if (workscrapePollTimer) return;
+
+    pollWorkscrapeStatus();
+    workscrapePollTimer = setInterval(pollWorkscrapeStatus, 1000);
+}
+
+async function pollWorkscrapeStatus() {
+    const statusEl = document.getElementById('workscrapeStatus');
+    const outputEl = document.getElementById('workscrapeOutput');
+    const runBtn = document.getElementById('runWorkscrapeBtn');
+
+    try {
+        const response = await fetch('/api/workscrape/status');
+        if (!response.ok) return;
+
+        const data = await response.json();
+
+        if (statusEl) {
+            if (data.running) {
+                statusEl.textContent = 'Running...';
+                statusEl.className = 'workscrape-status running';
+            } else if (data.return_code === 0) {
+                statusEl.textContent = 'Completed successfully';
+                statusEl.className = 'workscrape-status success';
+            } else if (data.return_code !== null) {
+                statusEl.textContent = `Failed (exit code ${data.return_code})`;
+                statusEl.className = 'workscrape-status error';
+            } else {
+                statusEl.textContent = 'Idle';
+                statusEl.className = 'workscrape-status';
+            }
+        }
+
+        const logs = data.output || [];
+        if (outputEl && logs.length !== workscrapeLastLogCount) {
+            outputEl.textContent = logs.join('\n');
+            outputEl.scrollTop = outputEl.scrollHeight;
+            workscrapeLastLogCount = logs.length;
+        }
+
+        if (!data.running) {
+            if (workscrapePollTimer) {
+                clearInterval(workscrapePollTimer);
+                workscrapePollTimer = null;
+            }
+            if (runBtn) {
+                runBtn.disabled = false;
+            }
+        }
+    } catch (error) {
+        console.error('Error polling workscrape status:', error);
+    }
+}
 
 async function loadInitialData() {
     // Load init data first (very fast - database only, ~0.01s)
     try {
         const initRes = await fetch('/api/init');
         const initData = await initRes.json();
-        
+
         buffers = initData.buffers || {};
         privacySettings = initData.privacy || {};
         const ignoredArray = initData.ignored || [];
@@ -27,7 +160,7 @@ async function loadInitialData() {
     } catch (error) {
         console.error('Error loading init data:', error);
     }
-    
+
     // Then load pending events (with correct state already populated)
     try {
         const eventsRes = await fetch('/api/pending_events');
@@ -48,12 +181,12 @@ async function loadDatabaseData() {
             fetch('/api/privacy'),
             fetch('/api/ignored')
         ]);
-        
+
         buffers = await buffersRes.json();
         privacySettings = await privacyRes.json();
         const ignoredArray = await ignoredRes.json();
         ignoredEvents = new Set(ignoredArray);
-        
+
         loadPendingEvents();
     } catch (error) {
         console.error('Error loading database data:', error);
@@ -119,7 +252,7 @@ async function loadPendingEvents(eventsData = null) {
             const isPending = e.status === 'pending' && !isIgnored;
             const isTimeChanged = e.status === 'time_changed';
             const isApproved = e.status === 'approved' && !isIgnored;
-            
+
             let backgroundColor, borderColor, textColor;
             if (isPending) {
                 backgroundColor = '#3b82f6';  // Blue for pending
@@ -142,7 +275,7 @@ async function loadPendingEvents(eventsData = null) {
                 borderColor = '#cbd5e0';
                 textColor = '#94a3b8';
             }
-            
+
             const eventObj = {
                 id: e.uid,
                 title: e.title,
@@ -210,13 +343,13 @@ function showEventDetail(event) {
 
     const statusMap = { 'approved': 'Approved', 'time_changed': 'Time Changed ⚠️', 'ignored': 'Ignored', 'ignored_auto': 'Auto-Ignored' };
     let statusDisplay;
-    
+
     if (isIgnored) {
         statusDisplay = 'Ignored';
     } else {
         statusDisplay = statusMap[props.status] || (statusMap[props.decision] || 'Pending');
     }
-    
+
     document.getElementById('eventStatus').textContent = statusDisplay;
     document.getElementById('eventStatus').className = 'status-badge status-' + (isIgnored ? 'ignored' : (props.status || props.decision || 'pending'));
 
@@ -232,12 +365,12 @@ function showEventDetail(event) {
     // Otherwise: show buttons with individual disabled states
     const approveBtn = document.getElementById('approveBtn');
     const ignoreBtn = document.getElementById('ignoreBtn');
-    
+
     if (isWork) {
         document.getElementById('eventActions').style.display = 'none';
     } else {
         document.getElementById('eventActions').style.display = 'flex';
-        
+
         // Set button states based on current status
         // Check isIgnored FIRST before checking status
         if (isIgnored) {
@@ -258,7 +391,7 @@ function showEventDetail(event) {
             ignoreBtn.disabled = false;
         }
     }
-    
+
     // Disable buffer inputs and privacy settings only for Work events
     const buffersDisabled = isWork;
     document.getElementById('bufferBefore').disabled = buffersDisabled;
@@ -306,7 +439,7 @@ function getBufferValues(uid) {
 function saveBufferValues(uid, before, after) {
     // Update in-memory cache
     buffers[uid] = { before, after };
-    
+
     // Save to database
     if (currentEvent) {
         fetch('/api/buffers', {
@@ -329,7 +462,7 @@ function getPrivacySettings(uid) {
 function savePrivacySettings(uid, useGenericTitle, useGenericDescription) {
     // Update in-memory cache
     privacySettings[uid] = { useGenericTitle, useGenericDescription };
-    
+
     // Save to database
     if (currentEvent) {
         fetch('/api/privacy', {
@@ -365,13 +498,13 @@ function addAllBufferVisualizations() {
 function addBufferVisualization(event, bufferBefore, bufferAfter) {
     const startDate = new Date(event.start);
     const endDate = new Date(event.end);
-    
+
     // Determine buffer color based on event status and ignored state
     const isApproved = event.extendedProps.status === 'approved';
     const isIgnored = event.extendedProps.isIgnored || false;
     const isTimeChanged = event.extendedProps.status === 'time_changed';
     const isPending = event.extendedProps.status === 'pending' && !isIgnored;
-    
+
     let bufferColor;
     if (isIgnored) {
         bufferColor = '#f87171';  // Red for ignored
@@ -472,7 +605,7 @@ async function approveEvent() {
     try {
         const props = currentEvent.extendedProps;
         const wasIgnored = ignoredEvents.has(currentEvent.id);
-        
+
         const response = await fetch('/api/approve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -523,7 +656,7 @@ async function ignoreEvent() {
         const props = currentEvent.extendedProps;
         const isTimeChanged = props.status === 'time_changed';
         const isApproved = props.status === 'approved';
-        
+
         // If time_changed or approved, remove from blocked calendars first
         if (isTimeChanged || isApproved) {
             const removeResponse = await fetch('/api/remove-approval', {
@@ -531,15 +664,15 @@ async function ignoreEvent() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uid: currentEvent.id })
             });
-            
+
             if (!removeResponse.ok) {
                 console.warn('Failed to remove approval from blocked calendars');
             }
         }
-        
+
         // Add to in-memory cache
         ignoredEvents.add(currentEvent.id);
-        
+
         // Save to database
         const response = await fetch('/api/ignored', {
             method: 'POST',

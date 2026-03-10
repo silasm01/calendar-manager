@@ -26,12 +26,13 @@ BLOCKED_CALENDAR_URLS = {
 }
 
 SYNC_WINDOW_DAYS = int(os.getenv('SYNC_WINDOW_DAYS', '90'))
+DATABASE = os.getenv('DATABASE_PATH', 'calmanage.db')
 
 def get_all_event_buffers():
     """Get all buffers from the database at once (more efficient than per-event queries)"""
     buffers = {}
     try:
-        conn = sqlite3.connect('calmanage.db')
+        conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         cursor.execute('SELECT event_uid, source, buffer_before, buffer_after FROM event_buffers')
         rows = cursor.fetchall()

@@ -1,9 +1,8 @@
 services:
   webapp:
-    # Pull from GHCR
-    image: ghcr.io/silasm01/calendar-manager:latest
-        docker container rm calman-webapp-run-83fa1c8b08a0
-    docker compose up
+    # Build from local Dockerfile
+    build: .
+
     container_name: calmanage-webapp
     ports:
       - "5000:5000"

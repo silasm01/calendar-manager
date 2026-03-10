@@ -1,3 +1,5 @@
+from time import sleep
+
 from playwright.sync_api import sync_playwright
 import os
 from dotenv import load_dotenv
@@ -27,6 +29,15 @@ with sync_playwright() as p:
       page.hover("text=Vagtplan")
       page.click("text=Hele perioden")
       
+      page.click("id=page.calendar.header.navigation")
+      page.click("data-test-id=component.calendar.nextMonth")
+      page.click("data-test-id=component.calendar.nextMonth")
+      page.click("data-test-id=component.calendar.day-2026-05-01")
+      
+
+    #   sleep(2)  # Wait for the calendar to load
+    #   exit(0)  # Exit after retrieving shifts to avoid adding events multiple times during testing
+      
       times = page.query_selector_all("tr[data-user='755438'][class='cal-row']")[0].query_selector_all("div")
       
       print("Retrieved {} shifts".format(len(times)))
@@ -51,7 +62,8 @@ with sync_playwright() as p:
       principal = client.principal()
       calendars = principal.calendars()
       
-      calendar = calendars[0]
+      calendar = calendars[next(i for i, cal in enumerate(calendars) if cal.name == "Arbejde")]
+        
       
       for time in only_real_shifts:
           start_time_str = time.get_attribute("id").split(";")[-1] + " " + time.inner_text().split("-")[0].strip()

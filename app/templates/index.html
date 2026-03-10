@@ -14,6 +14,7 @@
     <div class="header">
       <h1>Calendar Approval</h1>
       <div class="header-buttons">
+        <button class="btn btn-primary" id="runWorkscrapeBtn">Run Workscrape</button>
         <a href="/rules" class="btn btn-secondary">Rules</a>
       </div>
     </div>
@@ -81,6 +82,19 @@
           </div>
 
           <div class="event-uid" id="eventUid"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="workscrape-modal" id="workscrapeModal">
+      <div class="workscrape-modal-content">
+        <div class="workscrape-modal-header">
+          <h3>Workscrape Runner</h3>
+          <button class="workscrape-close" id="closeWorkscrapeModal">×</button>
+        </div>
+        <div class="workscrape-modal-body">
+          <div class="workscrape-status" id="workscrapeStatus">Idle</div>
+          <pre class="workscrape-output" id="workscrapeOutput"></pre>
         </div>
       </div>
     </div>

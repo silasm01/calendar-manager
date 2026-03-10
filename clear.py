@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APPROVED_CALENDAR_URL = os.getenv("APPROVED_CALENDAR_URL")
+# APPROVED_CALENDAR_URL = os.getenv("APPROVED_CALENDAR_URL")
+APPROVED_CALENDAR_URL = "http://100.70.0.50:5232/t/dfa4c16e-e299-3007-f60f-5eaa70f0c2cc/"
 USERNAME = os.getenv("RADICALE_USERNAME")
 PASSWORD = os.getenv("RADICALE_PASSWORD")
 

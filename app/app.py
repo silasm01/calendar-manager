@@ -2,6 +2,10 @@ from flask import Flask, render_template, jsonify, request
 from get_ics import fetch_and_update_ics, approve_event, remove_approval
 import os
 import sqlite3
+import subprocess
+import threading
+import sys
+from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -9,6 +13,43 @@ load_dotenv()
 
 app = Flask(__name__)
 DATABASE = os.getenv('DATABASE_PATH', 'calmanage.db')
+
+workscrape_lock = threading.Lock()
+workscrape_process = None
+workscrape_output = []
+workscrape_started_at = None
+workscrape_finished_at = None
+workscrape_return_code = None
+
+
+def _append_workscrape_output(line):
+    global workscrape_output
+    with workscrape_lock:
+        workscrape_output.append(line.rstrip())
+        if len(workscrape_output) > 1000:
+            workscrape_output = workscrape_output[-1000:]
+
+
+def _workscrape_reader(proc):
+    global workscrape_process, workscrape_finished_at, workscrape_return_code
+
+    if proc.stdout:
+        for line in iter(proc.stdout.readline, ''):
+            if not line:
+                break
+            _append_workscrape_output(line)
+
+    proc.wait()
+
+    with workscrape_lock:
+        workscrape_return_code = proc.returncode
+        workscrape_finished_at = datetime.utcnow().isoformat() + 'Z'
+        workscrape_process = None
+
+    if proc.returncode == 0:
+        _append_workscrape_output('workscrape.py finished successfully.')
+    else:
+        _append_workscrape_output(f'workscrape.py exited with code {proc.returncode}.')
 
 def get_db():
     """Get database connection"""
@@ -59,7 +100,100 @@ init_db()
 @app.route("/")
 def index():
     return render_template("index.html")
-  
+
+
+@app.route('/api/workscrape/start', methods=['POST'])
+def start_workscrape():
+    global workscrape_process, workscrape_output, workscrape_started_at, workscrape_finished_at, workscrape_return_code
+
+    with workscrape_lock:
+        if workscrape_process and workscrape_process.poll() is None:
+            return jsonify({'success': False, 'message': 'workscrape.py is already running'}), 409
+
+    script_path = Path(app.root_path).parent / 'workscrape.py'
+    if not script_path.exists():
+        return jsonify({'success': False, 'message': f'Cannot find {script_path.name}'}), 404
+
+    try:
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+
+        process = subprocess.Popen(
+            [sys.executable, '-u', str(script_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(script_path.parent),
+            env=env
+        )
+
+        with workscrape_lock:
+            workscrape_process = process
+            workscrape_output = ['Starting workscrape.py...']
+            workscrape_started_at = datetime.utcnow().isoformat() + 'Z'
+            workscrape_finished_at = None
+            workscrape_return_code = None
+
+        reader_thread = threading.Thread(target=_workscrape_reader, args=(process,), daemon=True)
+        reader_thread.start()
+
+        return jsonify({'success': True, 'message': 'workscrape.py started'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/workscrape/status', methods=['GET'])
+def workscrape_status():
+    with workscrape_lock:
+        running = bool(workscrape_process and workscrape_process.poll() is None)
+        return jsonify({
+            'running': running,
+            'output': workscrape_output,
+            'started_at': workscrape_started_at,
+            'finished_at': workscrape_finished_at,
+            'return_code': workscrape_return_code
+        })
+
+@app.route("/api/init")
+def api_init():
+    """Load all initial data: buffers, privacy settings, and ignored events"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get buffers
+    cursor.execute('SELECT event_uid, buffer_before, buffer_after FROM event_buffers')
+    buffer_rows = cursor.fetchall()
+    buffers = {}
+    for row in buffer_rows:
+        buffers[row['event_uid']] = {
+            'before': row['buffer_before'],
+            'after': row['buffer_after']
+        }
+    
+    # Get privacy settings
+    cursor.execute('SELECT event_uid, use_generic_title, use_generic_description FROM event_privacy')
+    privacy_rows = cursor.fetchall()
+    privacy = {}
+    for row in privacy_rows:
+        privacy[row['event_uid']] = {
+            'useGenericTitle': bool(row['use_generic_title']),
+            'useGenericDescription': bool(row['use_generic_description'])
+        }
+    
+    # Get ignored events
+    cursor.execute('SELECT event_uid FROM ignored_events')
+    ignored_rows = cursor.fetchall()
+    ignored = [row['event_uid'] for row in ignored_rows]
+    
+    conn.close()
+    
+    return jsonify({
+        'buffers': buffers,
+        'privacy': privacy,
+        'ignored': ignored
+    })
+
 @app.route("/api/pending_events")
 def pending_events():
     try:
