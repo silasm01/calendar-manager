@@ -28,31 +28,33 @@ with sync_playwright() as p:
       
       page.hover("text=Vagtplan")
       page.click("text=Hele perioden")
-      
+
+      def scrape_shifts(page):
+          times = page.query_selector_all("tr[data-user='755438'][class='cal-row']")[0].query_selector_all("div")
+          only_shifts = [t for t in times if t.inner_text() != ""]
+          real = [
+              t for t in only_shifts
+              if "#91F073" in (t.get_attribute("style") or "") or "#55AB43" in (t.get_attribute("style") or "")
+          ]
+          # Extract data immediately before any navigation invalidates the handles
+          return [(t.get_attribute("id"), t.inner_text()) for t in real]
+
+      # Scrape current period
+      current_period_shifts = scrape_shifts(page)
+      print(f"Retrieved {len(current_period_shifts)} real shifts from current period.")
+
+      # Navigate to next period and scrape again
       page.click("id=page.calendar.header.navigation")
       page.click("data-test-id=component.calendar.nextMonth")
       page.click("data-test-id=component.calendar.nextMonth")
       page.click("data-test-id=component.calendar.day-2026-05-01")
-      
 
-    #   sleep(2)  # Wait for the calendar to load
-    #   exit(0)  # Exit after retrieving shifts to avoid adding events multiple times during testing
-      
-      times = page.query_selector_all("tr[data-user='755438'][class='cal-row']")[0].query_selector_all("div")
-      
-      print("Retrieved {} shifts".format(len(times)))
-            
-      only_shifts = [time for time in times if time.inner_text() != ""]
-      
-      print("Retrieved {} shifts with time".format(len(only_shifts)))
-            
-      only_real_shifts = [
-          time for time in only_shifts
-          if "#91F073" in (time.get_attribute("style") or "") or "#55AB43" in (time.get_attribute("style") or "")
-      ]
-      
-      print("Retrieved {} real shifts".format(len(only_real_shifts)))
-      
+      next_period_shifts = scrape_shifts(page)
+      print(f"Retrieved {len(next_period_shifts)} real shifts from next period.")
+
+      only_real_shifts = current_period_shifts + next_period_shifts
+      print(f"Retrieved {len(only_real_shifts)} real shifts total.")
+
       client = DAVClient(
           url=APPROVED_CALENDAR_URL,
           username=USERNAME,
@@ -63,33 +65,64 @@ with sync_playwright() as p:
       calendars = principal.calendars()
       
       calendar = calendars[next(i for i, cal in enumerate(calendars) if cal.name == "Arbejde")]
-        
-      
-      for time in only_real_shifts:
-          start_time_str = time.get_attribute("id").split(";")[-1] + " " + time.inner_text().split("-")[0].strip()
-          end_time_str = time.get_attribute("id").split(";")[-1] + " " + time.inner_text().split("-")[1].split("\n")[0].strip()
-          
+
+      local_tz = pytz.timezone("Europe/Copenhagen")
+      now = datetime.now(pytz.utc)
+
+      # Build set of scraped shift times in UTC
+      scraped_shifts = []
+      for elem_id, elem_text in only_real_shifts:
+          start_time_str = elem_id.split(";")[-1] + " " + elem_text.split("-")[0].strip()
+          end_time_str = elem_id.split(";")[-1] + " " + elem_text.split("-")[1].split("\n")[0].strip()
+
           start_time = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M")
           end_time = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M")
-          
-          existing_events = calendar.search(start=start_time, end=end_time)
+
+          start_utc = local_tz.localize(start_time).astimezone(pytz.utc)
+          end_utc = local_tz.localize(end_time).astimezone(pytz.utc)
+          scraped_shifts.append((start_utc, end_utc))
+
+      scraped_set = set(scraped_shifts)
+
+      # Remove future events no longer present in the scraped schedule
+      if scraped_shifts:
+          range_start = min(s[0] for s in scraped_shifts)
+          range_end = max(s[1] for s in scraped_shifts)
+          all_existing = calendar.search(start=range_start, end=range_end)
+          print(f"Found {len(all_existing)} existing future events in calendar to check for removal.")
+          for existing in all_existing:
+              ical_obj = Calendar.from_ical(existing.data)
+              for component in ical_obj.walk():
+                  if component.name != "VEVENT":
+                      continue
+                  if str(component.get('summary', '')) != 'Arbejde':
+                      continue
+                  dtstart = component.get('dtstart').dt
+                  dtend = component.get('dtend').dt
+                  if not isinstance(dtstart, datetime):
+                      continue
+                  dtstart_utc = dtstart.astimezone(pytz.utc) if dtstart.tzinfo else pytz.utc.localize(dtstart)
+                  dtend_utc = dtend.astimezone(pytz.utc) if dtend.tzinfo else pytz.utc.localize(dtend)
+                  if dtstart_utc < now:
+                      continue
+                  print(f"Checking existing event {dtstart_utc} - {dtend_utc} (in scraped set: {(dtstart_utc, dtend_utc) in scraped_set})")
+                  if (dtstart_utc, dtend_utc) not in scraped_set:
+                      print(f"Removing stale event {dtstart_utc} - {dtend_utc}.")
+                      existing.delete()
+                  break
+
+      # Add new events
+      for start_utc, end_utc in scraped_shifts:
+          existing_events = calendar.search(start=start_utc, end=end_utc)
           if existing_events:
-              print(f"Event from {start_time_str} to {end_time_str} already exists. Skipping.")
+              print(f"Event from {start_utc} to {end_utc} already exists. Skipping.")
               continue
-              
-          else:
-              print(f"Adding event from {start_time_str} to {end_time_str}.")
-          
+
+          print(f"Adding event from {start_utc} to {end_utc}.")
           event = Event()
           event.add('summary', 'Arbejde')
-          
-          local_tz = pytz.timezone("Europe/Copenhagen")  # Change to your local timezone
-          start_time_localized = local_tz.localize(start_time)
-          end_time_localized = local_tz.localize(end_time)
-          
-          event.add('dtstart', start_time_localized.astimezone(pytz.utc))
-          event.add('dtend', end_time_localized.astimezone(pytz.utc))
-          
+          event.add('dtstart', start_utc)
+          event.add('dtend', end_utc)
           calendar.add_event(event)
-            
+
       browser.close()

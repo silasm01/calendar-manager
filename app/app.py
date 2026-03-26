@@ -21,6 +21,53 @@ workscrape_started_at = None
 workscrape_finished_at = None
 workscrape_return_code = None
 
+WORKSCRAPE_INTERVAL_SECONDS = 3600  # 1 hour
+
+
+def _run_workscrape():
+    global workscrape_process, workscrape_output, workscrape_started_at, workscrape_finished_at, workscrape_return_code
+
+    with workscrape_lock:
+        if workscrape_process and workscrape_process.poll() is None:
+            return  # Already running
+
+    script_path = Path(app.root_path).parent / 'workscrape.py'
+    if not script_path.exists():
+        return
+
+    env = os.environ.copy()
+    env['PYTHONUNBUFFERED'] = '1'
+
+    process = subprocess.Popen(
+        [sys.executable, '-u', str(script_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        cwd=str(script_path.parent),
+        env=env
+    )
+
+    with workscrape_lock:
+        workscrape_process = process
+        workscrape_output = ['Starting workscrape.py...']
+        workscrape_started_at = datetime.utcnow().isoformat() + 'Z'
+        workscrape_finished_at = None
+        workscrape_return_code = None
+
+    reader_thread = threading.Thread(target=_workscrape_reader, args=(process,), daemon=True)
+    reader_thread.start()
+
+
+def _workscrape_scheduler():
+    while True:
+        _run_workscrape()
+        threading.Event().wait(WORKSCRAPE_INTERVAL_SECONDS)
+
+
+scheduler_thread = threading.Thread(target=_workscrape_scheduler, daemon=True)
+scheduler_thread.start()
+
 
 def _append_workscrape_output(line):
     global workscrape_output
@@ -104,8 +151,6 @@ def index():
 
 @app.route('/api/workscrape/start', methods=['POST'])
 def start_workscrape():
-    global workscrape_process, workscrape_output, workscrape_started_at, workscrape_finished_at, workscrape_return_code
-
     with workscrape_lock:
         if workscrape_process and workscrape_process.poll() is None:
             return jsonify({'success': False, 'message': 'workscrape.py is already running'}), 409
@@ -115,29 +160,7 @@ def start_workscrape():
         return jsonify({'success': False, 'message': f'Cannot find {script_path.name}'}), 404
 
     try:
-        env = os.environ.copy()
-        env['PYTHONUNBUFFERED'] = '1'
-
-        process = subprocess.Popen(
-            [sys.executable, '-u', str(script_path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            cwd=str(script_path.parent),
-            env=env
-        )
-
-        with workscrape_lock:
-            workscrape_process = process
-            workscrape_output = ['Starting workscrape.py...']
-            workscrape_started_at = datetime.utcnow().isoformat() + 'Z'
-            workscrape_finished_at = None
-            workscrape_return_code = None
-
-        reader_thread = threading.Thread(target=_workscrape_reader, args=(process,), daemon=True)
-        reader_thread.start()
-
+        _run_workscrape()
         return jsonify({'success': True, 'message': 'workscrape.py started'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -366,4 +389,4 @@ def remove_approval_endpoint():
         return jsonify(result), 400
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0')
+    app.run(debug=False, host='0.0.0.0')
