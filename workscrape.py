@@ -17,9 +17,22 @@ PASSWORD = os.getenv("RADICALE_PASSWORD")
 SAMESYSTEM_LOGIN_URL = os.getenv("SAMESYSTEM_LOGIN_URL", "https://in.samesystem.com/login")
 SAMESYSTEM_EMAIL = os.getenv("SAMESYSTEM_EMAIL")
 SAMESYSTEM_PASSWORD = os.getenv("SAMESYSTEM_PASSWORD")
+
+
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+WORKSCRAPE_HEADLESS = env_bool("WORKSCRAPE_HEADLESS", True)
  
 with sync_playwright() as p:
-      browser = p.chromium.launch(headless=False)
+      browser = p.chromium.launch(
+          headless=WORKSCRAPE_HEADLESS,
+          args=["--no-sandbox", "--disable-dev-shm-usage"]
+      )
       page = browser.new_page()
       page.goto(SAMESYSTEM_LOGIN_URL)
       page.fill('input[name="user_session[email]"]', SAMESYSTEM_EMAIL)
