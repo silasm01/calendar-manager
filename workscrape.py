@@ -58,7 +58,7 @@ with sync_playwright() as p:
 
       # Navigate to next period and scrape again
       page.click("id=page.calendar.header.navigation")
-      page.click("data-test-id=component.calendar.nextMonth")
+    #   page.click("data-test-id=component.calendar.nextMonth")
       page.click("data-test-id=component.calendar.nextMonth")
       page.click("data-test-id=component.calendar.day-2026-05-01")
 
